@@ -68,16 +68,23 @@ export function startBackgroundJob(args: {
     });
     jobAc.signal.addEventListener("abort", cancelStall, { once: true });
     void args.exit.then((result) => {
-        args.onExit?.(result);
-        completeJob({
-            job: args.job,
-            code: result.code,
-            signal: result.signal,
-            reg: args.reg,
-            pi: args.pi,
-            ctx: args.ctx,
-            shouldNotify: args.shouldNotify,
-        });
+        try {
+            args.onExit?.(result);
+        } catch (error) {
+            console.error(`[bg-tasks] exit callback failed for ${args.job.id}:`, error);
+        } finally {
+            // Output forwarding may fail after the process has exited. Its
+            // observed exit must still reach the registry and release waiters.
+            completeJob({
+                job: args.job,
+                code: result.code,
+                signal: result.signal,
+                reg: args.reg,
+                pi: args.pi,
+                ctx: args.ctx,
+                shouldNotify: args.shouldNotify,
+            });
+        }
     });
     renderSidebar(args.reg, args.ctx);
     return jobAc;

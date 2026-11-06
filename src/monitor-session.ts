@@ -55,15 +55,21 @@ export function startMonitorSession(args: {
     // (see finishMonitor), sent the moment the source ends.
     const emitEvent = (lines: string[]): void => {
         if (lines.length === 0) return;
-        pi.sendMessage(
-            {
-                customType: EVENT.monitorEvent,
-                content: `◉ ${description}\n${lines.join("\n")}`,
-                display: true,
-                details: { jobId: id, description, logPath, terminal: false },
-            },
-            DELIVER_FOLLOWUP
-        );
+        try {
+            pi.sendMessage(
+                {
+                    customType: EVENT.monitorEvent,
+                    content: `◉ ${description}\n${lines.join("\n")}`,
+                    display: true,
+                    details: { jobId: id, description, logPath, terminal: false },
+                },
+                DELIVER_FOLLOWUP
+            );
+        } catch (error) {
+            // The source log remains readable even if the current session
+            // cannot accept a message. Keep following and observing its exit.
+            console.error(`[bg-tasks] monitor event delivery failed for ${id}:`, error);
+        }
     };
 
     const follower: MonitorFollower = followLines(logPath, (lines) => {

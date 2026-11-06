@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/pi-patty-bg-tasks"><img alt="npm" src="https://img.shields.io/npm/v/pi-patty-bg-tasks?color=cb3837&label=npm&logo=npm"></a>&nbsp;
+  <a href="https://github.com/fishcat37/pi-patty-bg-tasks"><img alt="fork source" src="https://img.shields.io/badge/source-fishcat37%2Fpi--patty--bg--tasks-blue"></a>&nbsp;
   <img alt="Pi v0.37+" src="https://img.shields.io/badge/Pi-v0.37%2B-5b50f0">&nbsp;
   <img alt="dependencies: zero" src="https://img.shields.io/badge/dependencies-zero-3fb950">&nbsp;
   <img alt="tmux: not required" src="https://img.shields.io/badge/tmux-not_required-3fb950">&nbsp;
@@ -20,15 +20,13 @@
 
 ## 설치
 
-```
-pi install npm:pi-patty-bg-tasks
+작업 완료 상태 수정이 포함된 이 포크를 GitHub에서 설치하세요:
+
+```bash
+pi install git:github.com/fishcat37/pi-patty-bg-tasks
 ```
 
-GitHub에서 바로 받아도 됩니다.
-
-```
-pi install git:github.com/patty-io/pi-patty-bg-tasks
-```
+npm 패키지 `pi-patty-bg-tasks`는 업스트림 배포본이며 이 포크의 수정 사항을 포함하지 않습니다.
 
 필요한 건 Pi v0.37 이상, 그게 전부입니다. **외부 의존성도 없고 tmux도 안 씁니다.** 백그라운드 잡은 그냥 평범한 Node.js 자식 프로세스로 돌아가고, 출력은 곧장 파일 디스크립터로 흘려보냅니다. 따로 설치할 것도, 신경 써서 돌볼 것도 없습니다.
 
@@ -276,7 +274,7 @@ tmux 기반 백그라운드 잡, 15초 자동 백그라운드, 협조적 스티�
 ## 개발
 
 ```
-git clone https://github.com/patty-io/pi-patty-bg-tasks.git
+git clone https://github.com/fishcat37/pi-patty-bg-tasks.git
 cd pi-patty-bg-tasks
 pnpm install
 pnpm check    # 타입 체크
