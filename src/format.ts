@@ -33,6 +33,29 @@ export function formatDuration(ms: number): string {
     return mins > 0 ? `${mins}m${secs}s` : `${secs}s`;
 }
 
+/** One-glyph status marker shared by the job list and the log viewer header. */
+export function statusIcon(job: Job): string {
+    switch (job.status) {
+        case "pending": return "◌";
+        case "running": return job.kind === "monitor" ? "◉" : "▶";
+        case "completed": return "✓";
+        case "failed": return "✗";
+        case "killed": return "✗";
+    }
+}
+
+/** Job list order: work in flight first, then finished jobs — newest first.
+ *  Ids break ties so two jobs started in the same millisecond can't swap places
+ *  between renders. */
+export function orderedJobs(jobs: Iterable<Job>): Job[] {
+    const all = Array.from(jobs);
+    const byNewest = (a: Job, b: Job) => b.startTime - a.startTime || a.id.localeCompare(b.id);
+    return [
+        ...all.filter((j) => j.status === "running").sort(byNewest),
+        ...all.filter((j) => j.status !== "running").sort(byNewest),
+    ];
+}
+
 /** Human-readable status pill, including duration for running jobs. */
 export function statusLabel(job: Job, duration?: string): string {
     const dur = duration ?? formatDuration(Date.now() - job.startTime);

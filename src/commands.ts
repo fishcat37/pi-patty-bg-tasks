@@ -3,6 +3,7 @@
  *
  *   - /bg: same as Ctrl+Shift+B — background the foreground process
  *   - /bg-list: open the interactive background task manager
+ *   - /bg-log: read one job's log in the live viewer (pick, or pass an id)
  *   - /bg-version: show the loaded extension version/path
  */
 
@@ -15,7 +16,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { BackgroundRegistry } from "./state.ts";
 import { takeControl, type ControlContext } from "./lifecycle.ts";
-import { openBgListPanel } from "./ui.ts";
+import { openBgListPanel, openBgLogPicker } from "./ui.ts";
+import { openLogViewer } from "./log-viewer.ts";
+import { findJob } from "./registry.ts";
 
 const packageJsonPath = fileURLToPath(new URL("../package.json", import.meta.url));
 const packageRoot = dirname(packageJsonPath);
@@ -36,6 +39,24 @@ export function registerCommands(
         description: "Open the interactive background task manager",
         handler: async (_args, ctx: ExtensionCommandContext) => {
             await openBgListPanel(reg, ctx);
+        },
+    });
+
+    pi.registerCommand("bg-log", {
+        description:
+            "Read a background job's log live — pick a job, or /bg-log <jobId>",
+        handler: async (args, ctx: ExtensionCommandContext) => {
+            const jobId = args.trim().split(/\s+/)[0] ?? "";
+            if (jobId) {
+                const job = findJob(reg, jobId);
+                if (!job) {
+                    ctx.ui.notify(`No task found with ID: ${jobId}`, "error");
+                    return;
+                }
+                await openLogViewer(job, ctx);
+                return;
+            }
+            await openBgLogPicker(reg, ctx);
         },
     });
 

@@ -1,18 +1,20 @@
 /**
- * Background tasks TUI panel — the /bg-list interactive manager.
+ * Background tasks TUI panel — the /bg-list interactive manager and the
+ * /bg-log job picker.
  *
- * Uses Pi's ctx.ui.select()/ctx.ui.editor() primitives (available in both
- * command and shortcut contexts) to provide Claude Code-style job management:
+ * Uses Pi's ctx.ui.select()/custom() primitives (available in both command and
+ * shortcut contexts) to provide Claude Code-style job management:
  * - pick a job from the list
- * - show output / kill / remove actions
+ * - read its log in the live viewer / kill / remove it
  */
 
 import type { Job, UiContext } from "./types.ts";
-import { OUTPUT_PREVIEW_CHARS, PREVIEW_CHARS } from "./types.ts";
+import { PREVIEW_CHARS } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
-import { formatDuration, jobLabel } from "./format.ts";
+import { formatDuration, jobLabel, orderedJobs, statusIcon } from "./format.ts";
 import { terminateJobSilently } from "./lifecycle.ts";
-import { forget, readLogTail, renderSidebar } from "./registry.ts";
+import { forget, renderSidebar } from "./registry.ts";
+import { openLogViewer } from "./log-viewer.ts";
 
 export async function openBgListPanel(
     reg: BackgroundRegistry,
@@ -20,31 +22,52 @@ export async function openBgListPanel(
 ): Promise<void> {
     // Use select()-based panel (works in both command and shortcut contexts).
     while (true) {
-        const jobs = getJobList(reg);
-        if (jobs.length === 0) {
-            ctx.ui.notify("No background tasks", "info");
-            return;
-        }
-
-        const items = jobs.map((job) => {
-            const icon = statusIcon(job);
-            const dur = formatDuration(Date.now() - job.startTime);
-            const label = job.name ? `${job.name} (${job.id})` : job.id;
-            const statusStr = job.status === "running" ? `running (${dur})` : job.status;
-            const cmd = job.command.slice(0, PREVIEW_CHARS.taskList);
-            return `${icon} ${label}: ${cmd} · ${statusStr}`;
-        });
-
-        const choice = await ctx.ui.select("Background Tasks", items);
-        if (choice === undefined) return;
-
-        const idx = items.indexOf(choice);
-        const job = jobs[idx];
+        const job = await pickJob("Background Tasks", reg, ctx);
         if (!job) return;
-
-        const continued = await showJobActions(job, reg, ctx);
-        if (!continued) return;
+        if (!(await showJobActions(job, reg, ctx))) return;
     }
+}
+
+/**
+ * /bg-log without an argument: pick a job, read its log, then come back to the
+ * list — the log viewer's only action is "close", so this loop is the whole
+ * interaction.
+ */
+export async function openBgLogPicker(
+    reg: BackgroundRegistry,
+    ctx: UiContext
+): Promise<void> {
+    while (true) {
+        const job = await pickJob("Background Logs", reg, ctx);
+        if (!job) return;
+        await openLogViewer(job, ctx);
+    }
+}
+
+/** Show the job list and return the chosen job (undefined when none / Esc). */
+async function pickJob(
+    title: string,
+    reg: BackgroundRegistry,
+    ctx: UiContext
+): Promise<Job | undefined> {
+    const jobs = orderedJobs(reg.jobs.values());
+    if (jobs.length === 0) {
+        ctx.ui.notify("No background tasks", "info");
+        return undefined;
+    }
+    const items = jobs.map(jobListLine);
+    const choice = await ctx.ui.select(title, items);
+    if (choice === undefined) return undefined;
+    return jobs[items.indexOf(choice)];
+}
+
+function jobListLine(job: Job): string {
+    const label = job.name ? `${job.name} (${job.id})` : job.id;
+    const status = job.status === "running"
+        ? `running (${formatDuration(Date.now() - job.startTime)})`
+        : job.status;
+    const cmd = job.command.slice(0, PREVIEW_CHARS.taskList);
+    return `${statusIcon(job)} ${label}: ${cmd} · ${status}`;
 }
 
 async function showJobActions(
@@ -55,13 +78,13 @@ async function showJobActions(
     const name = jobLabel(job);
 
     if (job.status === "running") {
-        const options = ["Show Output", "Kill", "← Back"];
+        const options = ["Show Log", "Kill", "← Back"];
         const action = await ctx.ui.select(
             `▶ ${name} · ${job.command.slice(0, PREVIEW_CHARS.detail)}`,
             options
         );
         if (action === undefined) return false;
-        if (action === "Show Output") { await showOutput(job, ctx); return true; }
+        if (action === "Show Log") { await openLogViewer(job, ctx); return true; }
         if (action === "Kill") {
             terminateJobSilently(reg, job);
             renderSidebar(reg, ctx);
@@ -71,10 +94,10 @@ async function showJobActions(
         return true;
     }
 
-    const options = ["Show Output", "Remove", "← Back"];
+    const options = ["Show Log", "Remove", "← Back"];
     const action = await ctx.ui.select(`${statusIcon(job)} ${name} · ${job.status}`, options);
     if (action === undefined) return false;
-    if (action === "Show Output") { await showOutput(job, ctx); return true; }
+    if (action === "Show Log") { await openLogViewer(job, ctx); return true; }
     if (action === "Remove") {
         forget(reg, job);
         renderSidebar(reg, ctx);
@@ -82,34 +105,4 @@ async function showJobActions(
         return true;
     }
     return true;
-}
-
-async function showOutput(job: Job, ctx: UiContext): Promise<void> {
-    const out = readLogTail(job, OUTPUT_PREVIEW_CHARS);
-    const dur = formatDuration(Date.now() - job.startTime);
-    const exitLine = job.exitCode !== undefined ? `\nExit code: ${job.exitCode}` : "";
-    await ctx.ui.editor(
-        `${statusIcon(job)} ${jobLabel(job)}`,
-        `Command: ${job.command}\n` +
-        `PID: ${job.pid} · Started: ${new Date(job.startTime).toLocaleString()}\n` +
-        `Duration: ${dur} · Status: ${job.status}${exitLine}\n` +
-        `Log: ${job.logPath}\n\n--- OUTPUT ---\n${out}`
-    );
-}
-
-function getJobList(reg: BackgroundRegistry): Job[] {
-    const all = Array.from(reg.jobs.values());
-    const running = all.filter((j) => j.status === "running").sort((a, b) => b.startTime - a.startTime);
-    const terminal = all.filter((j) => j.status !== "running").sort((a, b) => b.startTime - a.startTime);
-    return [...running, ...terminal];
-}
-
-function statusIcon(job: Job): string {
-    switch (job.status) {
-        case "pending": return "◌";
-        case "running": return "▶";
-        case "completed": return "✓";
-        case "failed": return "✗";
-        case "killed": return "✗";
-    }
 }

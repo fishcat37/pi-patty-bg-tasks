@@ -5,3 +5,7 @@ package-lock.json
 .npmrc
 .pi/
 .env
+
+# Local tool state and skills, not part of the extension
+.serena/
+skills/

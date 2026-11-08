@@ -36,7 +36,7 @@ Needs Pi v0.37+. That's the only requirement — there are **no external depende
 
 **It feels like Claude Code, because it's modeled on Claude Code.** The whole background/foreground dance — Ctrl+Shift+B to background, output capture, completion pings, stall detection — is built directly on Claude Code's implementation. Same message format, same terminal-native icons, same "agent never stops moving" flow. If you've got the muscle memory, it's already here.
 
-**A real job manager, not an afterthought.** `/bg-list` opens an interactive task manager where you can list jobs, peek at their output, kill the runaways, or attach and wait for a result.
+**A real job manager, not an afterthought.** `/bg-list` opens an interactive task manager where you can list jobs, read any job's log live, kill the runaways, or attach and wait for a result. Just want the log? `/bg-log` picks a job and shows it — no menu stops in between.
 
 ## Quick Start
 
@@ -154,7 +154,10 @@ Prefer slashes? Same powers, different door.
 |---------|-------------|
 | `/bg` | Background the current process (same as Ctrl+Shift+B) |
 | `/bg-list` | Open the interactive background task manager |
+| `/bg-log [jobId]` | Read one job's log live — pick from a list, or pass an ID |
 | `/bg-version` | Show the loaded extension version/path for reload diagnostics |
+
+`/bg-log` is the human-side counterpart of the agent's `jobs output`/`jobs attach`: it opens a scrolling, read-only view of the log file and keeps following it while the job runs (↑/↓ or j/k scroll, Ctrl+U/Ctrl+D page, `g` loads older output from a big log, `f` toggles following, `G` jumps to the bottom, `e` flips to a monitor's captured stderr, `q` or Esc closes). The `/bg-list` "Show Log" action opens the same viewer.
 
 ## How It Works
 
@@ -206,6 +209,17 @@ That's exactly how Claude Code behaves: submitting input during an interruptible
 A live pill widget keeps your running jobs in view — each with its duration and a preview of the command. Completed and failed counts ride along in the status line. When you want the full picture, Shift+Down or `/bg-list` opens the task manager.
 
 ## Releases
+
+### 2.1.0 — Live log view (`/bg-log`)
+
+`/bg-list` could list jobs but not let you *watch* one: "Show Output" was a frozen 12k-character snapshot in an editor, and the only live signal was the sidebar's last line. This release adds a real viewer.
+
+- **`/bg-log [jobId]`** — with no argument it lists the jobs (running first); ↑/↓ then Enter opens one. With an id it opens directly. `jobs output`/`jobs attach` stay the agent's tools; this one is yours.
+- **A live viewer, not a snapshot.** The log is polled every 400 ms and new lines are appended while the job runs, pinned to the bottom until you scroll up. ↑/↓ (or j/k) scroll, Ctrl+U/Ctrl+D page (PgUp/PgDn work too, but tmux copy-mode swallows them), `g` loads older output in 64 KiB pages up to a 1 MiB window, `f` toggles following, `G` jumps to the bottom, `q`/Esc closes.
+- **Monitor stderr is readable.** The monitor tool captures stderr to a sibling `.err` file; `e` flips between stdout and stderr, each keeping its own scroll position.
+- **`/bg-list`'s "Show Output" became "Show Log"** and opens the same viewer. Outside the TUI (RPC/print mode) it still falls back to the static snapshot.
+- **`npm test` stopped silently dropping results.** `--test-force-exit` exited before every file reported, so the same commit claimed anywhere from 168 to 196 tests across runs; without it the suite reports a stable 196.
+- `@earendil-works/pi-tui` joined the peer dependencies — pi hands it to extensions itself, so there is still nothing extra to install.
 
 ### 2.0.0 — Claude Code parity re-architecture
 

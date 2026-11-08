@@ -36,7 +36,7 @@ npm 包 `pi-patty-bg-tasks` 属于上游发布，不包含本 fork 的修复。
 
 **用起来像 Claude Code,因为它就是照着 Claude Code 做的。** 前后台来回切换的这一整套动作 —— Ctrl+Shift+B 转后台、输出捕获、完成提醒、卡顿检测 —— 全都直接建在 Claude Code 的实现之上。一样的消息格式,一样的终端原生图标,一样「代理永不停手」的节奏。要是你早已练出肌肉记忆,那这里照样能用。
 
-**一个像样的作业管理器,而不是临时凑数。** `/bg-list` 打开一个交互式作业管理器:列出作业、瞄一眼输出、干掉跑飞的、或者挂上去等结果,样样都行。
+**一个像样的作业管理器,而不是临时凑数。** `/bg-list` 打开一个交互式作业管理器:列出作业、实时看日志、干掉跑飞的、或者挂上去等结果,样样都行。只想看日志?`/bg-log` 选一个作业直接看,中间不用再跳菜单。
 
 ## 快速开始
 
@@ -154,7 +154,10 @@ monitor({ ws: { url: "wss://events.example.com/stream" }, description: "部署�
 |------|------|
 | `/bg` | 把当前进程转后台(等同 Ctrl+Shift+B) |
 | `/bg-list` | 打开交互式后台作业管理器 |
+| `/bg-log [jobId]` | 实时查看某个后台作业的日志 —— 不带参数就从列表里选 |
 | `/bg-version` | 显示已加载扩展的版本/路径,方便排查重载问题 |
+
+`/bg-log` 是代理侧 `jobs output`/`jobs attach` 对应的人类入口:它打开一个只读的滚动视图,作业还在跑时会一直跟随(↑/↓ 或 j/k 滚动,Ctrl+U/Ctrl+D 翻页,`g` 往前加载更早的输出,`f` 切换跟随,`G` 跳回末尾,`e` 切到 monitor 单独捕获的 stderr,`q` 或 Esc 关闭)。`/bg-list` 里的 "Show Log" 打开的是同一个查看器。
 
 ## 工作原理
 
@@ -203,6 +206,17 @@ monitor({ ws: { url: "wss://events.example.com/stream" }, description: "部署�
 一个实时的胶囊小组件让运行中的作业始终在你眼前 —— 每个都带着已运行时长和命令预览。完成数和失败数也一并显示在状态行里。想看全貌时,Shift+Down 或 `/bg-list` 打开作业管理器。
 
 ## 版本发布
+
+### 2.1.0 —— 实时看日志(`/bg-log`)
+
+`/bg-list` 能列出作业,却没法"盯着看":里面的 "Show Output" 是塞进编辑器的一张静态快照(尾部 12k 字符),真正的实时信号只有侧边栏那一行。这个版本补上了查看器。
+
+- **`/bg-log [jobId]`** —— 不带参数就列作业(运行中的在前),↑/↓ 选、Enter 打开;带 id 直接进。`jobs output`/`jobs attach` 仍然是给代理用的,这个是给人的。
+- **真·实时,不是快照。** 每 400 毫秒轮询日志,作业还在跑就持续追加,并且钉在末尾——除非你往上滚。↑/↓(或 j/k)滚动,Ctrl+U/Ctrl+D 翻页(PgUp/PgDn 也认,但在 tmux 里会被 copy-mode 吃掉),`g` 按 64 KiB 一页往前加载更早的输出、最多 1 MiB 窗口,`f` 切换跟随,`G` 跳回末尾,`q`/Esc 关闭。
+- **monitor 的 stderr 能看了。** monitor 工具会把 stderr 单独写进兄弟文件 `.err`;按 `e` 在 stdout 和 stderr 之间切换,两边各自保留滚动位置。
+- **`/bg-list` 的 "Show Output" 改名 "Show Log"**,打开的是同一个查看器。TUI 之外(RPC/print 模式)仍然退回静态快照。
+- **`npm test` 不再悄悄漏报。** `--test-force-exit` 会在各文件结果回来之前就退出,同一个 commit 的测试总数在 168–196 之间浮动;去掉后稳定报 196。
+- `@earendil-works/pi-tui` 进入 peer 依赖 —— pi 自己会提供给扩展,所以依旧没有额外要装的东西。
 
 ### 2.0.0 —— Claude Code 对齐重构
 

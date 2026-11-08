@@ -122,7 +122,27 @@ export const DELIVER_STEER = { deliverAs: "steer", triggerTurn: true } as const;
 export const DELIVER_FOLLOWUP = { deliverAs: "followUp", triggerTurn: false } as const;
 
 // --- UI context ---
+export interface UiTheme {
+    fg(colour: string, text: string): string;
+}
+
+/** What a custom component needs from pi's TUI handle: ask for a repaint. */
+export interface TuiHandle {
+    requestRender(): void;
+}
+
+/** The Component shape pi-tui expects (pi-tui's Component satisfies it). */
+export interface ViewerComponent {
+    render(width: number): string[];
+    handleInput?(data: string): void;
+    invalidate(): void;
+    dispose?(): void;
+}
+
 export interface UiContext {
+    /** Runtime mode: only "tui" can host custom components (the RPC UI stub
+     *  resolves custom() with undefined). Absent in test fakes. */
+    mode?: "tui" | "rpc" | "json" | "print";
     ui: {
         notify(message: string, level?: "info" | "warning" | "error"): void;
         setWidget(
@@ -131,9 +151,20 @@ export interface UiContext {
             options?: { placement?: "aboveEditor" | "belowEditor" }
         ): void;
         setStatus(name: string, content: unknown): void;
-        theme: { fg(colour: string, text: string): string };
+        theme: UiTheme;
         select(title: string, options: string[]): Promise<string | undefined>;
         editor(title: string, content: string): Promise<string | undefined>;
+        /** Interactive component with keyboard focus (TUI only; the RPC/print
+         *  UIs stub it out, so callers fall back to a static snapshot). */
+        custom?<T>(
+            factory: (
+                tui: TuiHandle,
+                theme: UiTheme,
+                keybindings: unknown,
+                done: (result: T) => void
+            ) => ViewerComponent | Promise<ViewerComponent>,
+            options?: { overlay?: boolean }
+        ): Promise<T>;
     };
 }
 
