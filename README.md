@@ -196,11 +196,12 @@ completed-but-unread jobs show `, unread` in `jobs list` and the sidebar.
 
 Type a message while a backgroundable foreground command is running, and the extension steps in **before** Pi queues your text as steering:
 
-1. The active foreground command slides into the background (output keeps capturing — nothing is lost).
-2. The current agent turn is aborted.
-3. Your message is re-injected as a fresh user turn the instant the agent is idle.
+1. The active foreground command slides into the background (output keeps capturing — nothing is lost). Its tool result comes back immediately, so the agent stops waiting on it.
+2. Your message is queued exactly as Pi received it — images included — and delivered as the very next thing the model sees, right after that tool result.
 
-That's exactly how Claude Code behaves: submitting input during an interruptible tool aborts the tool and starts a new turn, instead of leaving your message stuck in line behind a long-running call. No polling, no waiting your turn.
+That's how Claude Code behaves: submitting input during an interruptible tool gets your message acted on instead of leaving it stuck in line behind a long-running call. No polling, no waiting your turn.
+
+**The turn is never aborted.** An abort would leave `Error: This operation was aborted` in the transcript, push your text back into the editor, drop attached images, and — because Pi abandons the rest of the run — strand a message queued during the abort in the queue instead of acting on it.
 
 **Scope:** this applies to the `bash` tool this extension owns. Long-running tools the extension doesn't wrap fall back to Pi's native steering (queued, delivered at the next turn boundary).
 
@@ -209,6 +210,12 @@ That's exactly how Claude Code behaves: submitting input during an interruptible
 A live pill widget keeps your running jobs in view — each with its duration and a preview of the command. Completed and failed counts ride along in the status line. When you want the full picture, Shift+Down or `/bg-list` opens the task manager.
 
 ## Releases
+
+### 2.1.1 — Steering no longer aborts the turn
+
+Typing a message while a foreground command was running ended the turn with `Error: This operation was aborted`, and the text you had just typed could be left sitting in the follow-up queue instead of being acted on. The extension aborted the run to make the `bash` tool return — but the pause request it sent a moment earlier already does that on its own.
+
+The input handler now only moves the command to the background and hands your message back to Pi, which queues it as steering (images included) and delivers it as the next thing the model sees, right after the backgrounded command's tool result. Nothing is aborted, so the transcript stays clean and the message always gets processed.
 
 ### 2.1.0 — Live log view (`/bg-log`)
 

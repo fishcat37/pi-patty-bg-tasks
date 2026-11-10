@@ -7,29 +7,26 @@ import { backgroundActiveForeground } from "./lifecycle.ts";
 export function registerInputHandlers(pi: ExtensionAPI, reg: BackgroundRegistry): void {
     pi.on("input", async (event, ctx) => {
         // Cooperative steering (Claude Code parity): ANY input typed while a
-        // foreground bash command is running backgrounds that command and
-        // re-delivers the input as the next turn — regardless of the message's
-        // steer/followUp streamingBehavior. We only intercept when a foreground
-        // slot is active; everything else falls through to Pi.
+        // foreground bash command is running moves that command to the
+        // background, so the agent stops waiting on it and the message is
+        // delivered as the next thing the model sees.
+        //
+        // The pause request alone is enough to end the wait: the bash tool
+        // races its process against that pause, so it returns its
+        // "backgrounded" result immediately. We then let Pi queue the message
+        // normally (steer, or followUp) — Pi injects a steering message right
+        // after the tool results, before the next model call.
+        //
+        // We deliberately do NOT call ctx.abort(). In Pi an abort rejects the
+        // running turn with an AbortError, which lands in the transcript as
+        // "Error: This operation was aborted", drops the message back into the
+        // editor, and loses attached images. See lifecycle.takeControl, which
+        // avoids abort for the same reason.
         if (reg.foreground.size === 0) return { action: "continue" };
         // Don't intercept extension-sourced messages.
         if (event.source === "extension") return { action: "continue" };
 
-        const text = event.text;
-        const bg = backgroundActiveForeground(reg, ctx as UiContext);
-        if (!bg) return { action: "continue" };
-
-        // Abort the current turn so the bash tool returns the "backgrounded" result.
-        ctx.abort?.();
-
-        // Resubmit the user's message as a follow-up — Pi delivers it
-        // after the current turn settles. No polling needed.
-        try {
-            pi.sendUserMessage(text, { deliverAs: "followUp" });
-        } catch {
-            // Session ended between abort and resubmit — nothing to deliver to.
-        }
-
-        return { action: "handled" };
+        backgroundActiveForeground(reg, ctx as UiContext);
+        return { action: "continue" };
     });
 }

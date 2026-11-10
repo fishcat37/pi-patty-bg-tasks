@@ -140,11 +140,12 @@ async function runForeground(args: {
     const id = newJobId("shell", reg);
     const logPath = logPathFor(id);
 
-    // Spawn WITHOUT wiring the turn signal to a process kill. Cooperative
-    // steering aborts the turn (ctx.abort) to move this command to the
-    // background; if the turn signal killed the process group, that abort would
-    // kill the very command we just backgrounded. We manage the signal manually
-    // below and only kill on a genuine cancel (abort with no pause requested).
+    // Spawn WITHOUT wiring the turn signal to a process kill. A turn abort is
+    // not how a command gets backgrounded (steering only requests a pause),
+    // but Ctrl+Shift+B and the auto-background timer are, and a kill wired to the
+    // turn signal would take out the very command we just moved to the
+    // background. We manage the signal manually below and only kill on a
+    // genuine cancel (abort with no pause requested).
     const spawned = spawnWithFileOutput({
         command,
         cwd: ctx.cwd,
@@ -200,8 +201,7 @@ async function runForeground(args: {
         if (handedToBackground) return;
         handedToBackground = true;
         // Clear the foreground slot now (not only in `finally`) so a backgrounded
-        // command can't strand a stale slot when cooperative steering tears down
-        // the turn right after requesting the pause.
+        // command can't strand a stale slot while the turn unwinds.
         reg.foreground.delete(toolCallId);
         job.isBackgrounded = true;
         markStarted(reg);
