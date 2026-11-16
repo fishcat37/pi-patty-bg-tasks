@@ -207,9 +207,18 @@ That's how Claude Code behaves: submitting input during an interruptible tool ge
 
 ## Status Bar
 
-A live pill widget keeps your running jobs in view — each with its duration and a preview of the command. Completed and failed counts ride along in the status line. When you want the full picture, Shift+Down or `/bg-list` opens the task manager.
+A live pill widget keeps your running jobs in view — each with its duration and the **full command**, which the widget wraps to the terminal width instead of cutting off. The job's latest output line follows on the row below, so progress stays visible too. Completed and failed counts ride along in the status line. When you want the full picture, Shift+Down or `/bg-list` opens the task manager (its list, like these pills, shows whole commands).
 
 ## Releases
+
+### 2.2.0 — Full commands, no more truncation
+
+The sidebar pill and `/bg-list` cut the command at 40/50/60 characters, so a job whose command began with a long `cd … &&` showed you the directory and hid the part that says what it actually runs. Pi's own TUI primitives wrap a line to the terminal width, so those slices were discarding text that would have fitted on the next row.
+
+- **The sidebar pill shows the whole command** with the job's duration. The latest output line now follows on a continuation row (`   ↳ …`) instead of replacing the command. Both live in one widget string, so the ten-line widget budget is unchanged.
+- **`/bg-list` shows the whole command** in the job list and in the job's actions header.
+- **Only the live output line stays bounded** (`PREVIEW_CHARS.progress`): a single log line has no length limit, and the pill is a glance, not a log.
+- The trade-off is height: a long command wraps to two or three rows. Ten jobs with long commands make the `/bg-list` panel 38 rows tall at 80 columns (it was 18), and pi's selector does not scroll, so a short terminal can clip it. The agent-facing `jobs list` keeps its 80-character preview.
 
 ### 2.1.1 — Steering no longer aborts the turn
 

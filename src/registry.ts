@@ -8,7 +8,7 @@
 
 import { randomInt } from "node:crypto";
 import { statSync, unlinkSync } from "node:fs";
-import { formatDuration, jobLabel } from "./format.ts";
+import { formatDuration, jobLabel, oneLine } from "./format.ts";
 import {
     isTerminalStatus,
     JOB_ID_PREFIX,
@@ -208,11 +208,17 @@ export function renderSidebar(reg: BackgroundRegistry, ctx: UiContext): void {
         runningLogs.add(job.logPath);
         const duration = formatDuration(Date.now() - job.startTime);
         const glyph = job.kind === "monitor" ? "◉" : "▶";
-        // Show the job's latest output line as live progress; fall back to the
-        // command until there's any output. Re-read each tick by the ticker.
-        const progress = sidebarLastLine(job.logPath) || job.command;
+        // The command is what identifies the job, so it is never cut — pi wraps
+        // a widget line to the terminal width. The latest output line rides
+        // along on a continuation row (re-read each tick by the ticker), and
+        // only that one is bounded: a single log line can be arbitrarily long.
+        const command = oneLine(job.command);
+        const progress = sidebarLastLine(job.logPath);
+        const pill = `${glyph} ${jobLabel(job)}: ${command} (${duration})`;
         pills.push(
-            `${glyph} ${jobLabel(job)}: ${progress.slice(0, PREVIEW_CHARS.progress)} (${duration})`
+            progress && progress !== command
+                ? `${pill}\n   ↳ ${progress.slice(0, PREVIEW_CHARS.progress)}`
+                : pill
         );
     }
 

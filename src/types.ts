@@ -32,8 +32,6 @@ export const MONITOR_MAX_LINES_PER_WINDOW = 500;
 
 export const PREVIEW_CHARS = {
     sidebar: 25,
-    taskList: 40,
-    detail: 50,
     line: 80,
     /** Live progress line shown in the sidebar pill. */
     progress: 60,

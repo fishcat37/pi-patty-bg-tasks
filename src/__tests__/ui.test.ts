@@ -20,6 +20,7 @@ const dir = join(tmpdir(), `pi-bg-ui-${process.pid}`);
 function harness(answers: string[]) {
     const rendered: string[][] = [];
     const prompts: string[][] = [];
+    const titles: string[] = [];
     const notices: string[] = [];
     const queue = [...answers];
 
@@ -28,7 +29,8 @@ function harness(answers: string[]) {
         setWidget() {},
         setStatus() {},
         theme: { fg: (_c: string, t: string) => t },
-        async select(_title: string, options: string[]) {
+        async select(title: string, options: string[]) {
+            titles.push(title);
             prompts.push(options);
             const answer = queue.shift();
             return answer === undefined ? undefined : options.find((o) => o.includes(answer));
@@ -51,16 +53,16 @@ function harness(answers: string[]) {
             return undefined;
         },
     };
-    return { ctx: { ui } as unknown as UiContext, rendered, prompts, notices };
+    return { ctx: { ui } as unknown as UiContext, rendered, prompts, titles, notices };
 }
 
-function seed(reg: BackgroundRegistry, id: string): void {
+function seed(reg: BackgroundRegistry, id: string, command = "npm run build"): void {
     mkdirSync(dir, { recursive: true });
     const logPath = join(dir, `${id}.log`);
     writeFileSync(logPath, `output of ${id}\n`);
     add(reg, createRunningJob({
         id,
-        command: "npm run build",
+        command,
         pid: 999,
         logPath,
         toolCallId: `call-${id}`,
@@ -82,6 +84,22 @@ void describe("/bg-list panel", () => {
         assert.equal(rendered.length, 1);
         assert.match(rendered[0][0], /▶ b1 \(b1\) · running/);
         assert.ok(rendered[0].includes("output of b1"));
+    });
+
+    void it("keeps the whole command in the list and the actions header", async () => {
+        const reg = new BackgroundRegistry();
+        const command =
+            "cd /home/wang/code/competition/name-that-llm && uv run python scripts/train/frozen_feature_probe.py --fold 3 --limit 0";
+        seed(reg, "b1", command);
+        const { ctx, prompts, titles } = harness(["b1"]);
+
+        await openBgListPanel(reg, ctx);
+
+        assert.ok(
+            prompts[0].some((option) => option.includes(command)),
+            "list line carries the full command for the selector to wrap"
+        );
+        assert.ok(titles[1].includes(command), "actions header shows it too");
     });
 
     void it("still kills a running job from the menu", async () => {

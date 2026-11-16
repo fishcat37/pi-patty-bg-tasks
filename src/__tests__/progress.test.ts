@@ -74,7 +74,7 @@ void describe("renderSidebar — pill shows live progress", () => {
         return { ctx, getWidget: () => widget };
     }
 
-    void it("renders the latest output line, not just the command", () => {
+    void it("shows the full command plus the latest output line", () => {
         const reg = new BackgroundRegistry();
         const logPath = tmpLog("job.log", "starting up\n{\"indexed\":8540629,\"status\":\"grey\"}\n");
         const job = createRunningJob({
@@ -90,8 +90,30 @@ void describe("renderSidebar — pill shows live progress", () => {
         renderSidebar(reg, ctx);
 
         const pill = getWidget()?.[0] ?? "";
-        assert.match(pill, /indexed":8540629/, "shows the latest output line");
-        assert.doesNotMatch(pill, /seq 1 20/, "not the raw command once there is output");
+        assert.match(pill, /seq 1 20/, "the command stays readable next to the progress");
+        assert.match(pill, /↳ .*indexed":8540629/, "the latest output line follows it");
+    });
+
+    void it("does not cut a long command", () => {
+        const reg = new BackgroundRegistry();
+        const logPath = tmpLog("long-cmd.log", "");
+        const command =
+            "cd /home/wang/code/competition/name-that-llm && uv run python scripts/train/frozen_feature_probe.py --fold 3 --limit 0";
+        const job = createRunningJob({
+            id: "job-1-5",
+            command,
+            pid: 127,
+            logPath,
+            toolCallId: "t",
+        });
+        add(reg, job);
+
+        const { ctx, getWidget } = ctxStub();
+        renderSidebar(reg, ctx);
+        assert.ok(
+            (getWidget()?.[0] ?? "").includes(command),
+            "the whole command is rendered; the terminal wraps it"
+        );
     });
 
     void it("falls back to the command when there is no output yet", () => {

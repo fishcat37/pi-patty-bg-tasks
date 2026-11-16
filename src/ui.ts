@@ -9,9 +9,8 @@
  */
 
 import type { Job, UiContext } from "./types.ts";
-import { PREVIEW_CHARS } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
-import { formatDuration, jobLabel, orderedJobs, statusIcon } from "./format.ts";
+import { formatDuration, jobLabel, oneLine, orderedJobs, statusIcon } from "./format.ts";
 import { terminateJobSilently } from "./lifecycle.ts";
 import { forget, renderSidebar } from "./registry.ts";
 import { openLogViewer } from "./log-viewer.ts";
@@ -66,8 +65,9 @@ function jobListLine(job: Job): string {
     const status = job.status === "running"
         ? `running (${formatDuration(Date.now() - job.startTime)})`
         : job.status;
-    const cmd = job.command.slice(0, PREVIEW_CHARS.taskList);
-    return `${statusIcon(job)} ${label}: ${cmd} · ${status}`;
+    // The whole command — the selector wraps a long option to the terminal
+    // width instead of dropping the tail.
+    return `${statusIcon(job)} ${label}: ${oneLine(job.command)} · ${status}`;
 }
 
 async function showJobActions(
@@ -80,7 +80,7 @@ async function showJobActions(
     if (job.status === "running") {
         const options = ["Show Log", "Kill", "← Back"];
         const action = await ctx.ui.select(
-            `▶ ${name} · ${job.command.slice(0, PREVIEW_CHARS.detail)}`,
+            `▶ ${name} · ${oneLine(job.command)}`,
             options
         );
         if (action === undefined) return false;

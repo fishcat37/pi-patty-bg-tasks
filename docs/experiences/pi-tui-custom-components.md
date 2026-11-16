@@ -39,3 +39,54 @@ log file; `unref()` the timer and `clearInterval` in `dispose()` (pi calls it
 when the component closes). pi's renderer skips terminal writes when the
 rendered lines are unchanged, so an idle redraw is cheap, and keeping the tick
 alive is what keeps the header's duration counting up.
+
+## Pi wraps widget lines and selector options — only the height is limited
+
+Two primitives this extension leans on both wrap rather than clip, which is why
+the extension does not need its own truncation:
+
+- `ctx.ui.setWidget(key, string[])` wraps each string in `new Text(line, 1, 0)`
+  (`setExtensionWidget` in `interactive-mode`), and `Text.render(width)` runs
+  `wrapTextWithAnsi`. A row longer than the terminal wraps onto the next row.
+  `MAX_WIDGET_LINES = 10` caps the number of **strings**, not the rendered rows,
+  so one string containing `\n` (command + progress line) still costs one slot.
+- `ctx.ui.select(title, options)` renders options through
+  `ExtensionSelectorComponent` → `Text(text, 1, 0)`, so long options wrap too.
+
+`ExtensionSelectorComponent` does not scroll: `maxVisible` is hard-coded to 10.
+Panel height therefore grows with the wrapped option height — measured by
+rendering the real component at width 80 with ~140-character commands:
+
+| jobs in list | panel height |
+|---|---|
+| 1 | 11 rows |
+| 3 | 17 rows |
+| 5 | 23 rows |
+| 10 | 38 rows |
+
+The same list with commands cut to 40 characters is 9 / 18 rows, so removing
+the cut roughly doubles the height. On a short terminal the bottom of the panel
+clips as you navigate. If a bounded-height list is needed, build it with
+`ctx.ui.custom` and derive the body height the way `src/log-viewer.ts` does.
+
+Consequence for this extension (v2.2.0): the `PREVIEW_CHARS.taskList` /
+`detail` / sidebar-command slices were redundant truncation of text pi would
+have wrapped anyway, so they are gone. Only the live output line stays bounded
+(`PREVIEW_CHARS.progress`), because a single log line has no length limit and
+the pill is a glance, not a log.
+
+## Checking the rendering without launching the TUI
+
+Feed the exact string the code produces to the real component instead of
+guessing:
+
+```ts
+import { Text } from "@earendil-works/pi-tui";
+new Text(pill, 1, 0).render(80);   // → the wrapped rows pi will show
+```
+
+For the selector, `new ExtensionSelectorComponent(title, options, onSelect,
+onCancel, {}).render(80).length` gives the true panel height; it needs
+`initTheme("dark")` from `pi-coding-agent/dist/modes/interactive/theme/theme.js`
+first. Both work from a plain `node --experimental-strip-types` script against
+the installed package — no TUI session required.
