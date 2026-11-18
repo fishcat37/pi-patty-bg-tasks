@@ -42,8 +42,8 @@ alive is what keeps the header's duration counting up.
 
 ## Pi wraps widget lines and selector options — only the height is limited
 
-Two primitives this extension leans on both wrap rather than clip, which is why
-the extension does not need its own truncation:
+Two primitives this extension leans on both wrap rather than clip, so the
+extension does not need its own truncation there:
 
 - `ctx.ui.setWidget(key, string[])` wraps each string in `new Text(line, 1, 0)`
   (`setExtensionWidget` in `interactive-mode`), and `Text.render(width)` runs
@@ -69,11 +69,37 @@ the cut roughly doubles the height. On a short terminal the bottom of the panel
 clips as you navigate. If a bounded-height list is needed, build it with
 `ctx.ui.custom` and derive the body height the way `src/log-viewer.ts` does.
 
-Consequence for this extension (v2.2.0): the `PREVIEW_CHARS.taskList` /
-`detail` / sidebar-command slices were redundant truncation of text pi would
-have wrapped anyway, so they are gone. Only the live output line stays bounded
-(`PREVIEW_CHARS.progress`), because a single log line has no length limit and
-the pill is a glance, not a log.
+Consequence for this extension: `/bg-list` relies on the selector's wrapping
+and shows whole commands. The sidebar used to do the same; v2.3.0 moved it to a
+component so it can stop each job at exactly one physical row (next section).
+
+## Widget components need `requestRender`, and clicks only exist in fullscreen
+
+`ctx.ui.setWidget(key, string[])` wraps each string, so it cannot make a row
+stop at one physical line. The component form —
+`setWidget(key, (tui) => component)` — hands `render(width)` the exact available
+width and is the only way to cut a line precisely (`truncateToWidth` for the
+collapsed sidebar, `wrapTextWithAnsi` for the expanded form).
+
+Three consequences found while building the v2.3.0 sidebar:
+
+- **Every `setWidget` call disposes the previous component.**
+  `setExtensionWidget` starts with `removeExisting(...)` for the same key, so
+  re-setting the widget (the old string form was re-sent each second) would
+  destroy the component and lose any UI state. Mount once, keep the `tui`
+  handle, and call `requestRender()` for duration/progress ticks; call
+  `setWidget(key, undefined)` only when the widget is no longer needed.
+- **Mouse events reach widget components only in fullscreen mode.** The
+  fullscreen layout records a box for every rendered component and routes a
+  click to the deepest component with `handleMouse`; regular mode leaves the
+  mouse to the terminal because it owns scrollback. A handler that toggles
+  state must return `{ handled: true, render: true }` so the click does not
+  also start transcript selection. Current pi-tui exports `MouseRegion` and
+  `TuiMouseEvent`; this extension keeps its own structural `WidgetComponent`
+  type so it still compiles against older pi-tui versions without them.
+- **RPC/print hosts cannot host a component factory.** RPC's `setWidget`
+  ignores function content ("Only support string arrays in RPC mode"), so the
+  sidebar keeps a string-line fallback whenever `ctx.mode !== "tui"`.
 
 ## Checking the rendering without launching the TUI
 

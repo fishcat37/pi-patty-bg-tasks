@@ -8,6 +8,7 @@
 
 import { randomInt } from "node:crypto";
 import { statSync, unlinkSync } from "node:fs";
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { formatDuration, jobLabel, oneLine } from "./format.ts";
 import {
     isTerminalStatus,
@@ -17,7 +18,11 @@ import {
     RECENT_TERMINAL_KEEP,
     type Job,
     type JobKind,
+    type TuiHandle,
     type UiContext,
+    type WidgetComponent,
+    type WidgetMouseEvent,
+    type WidgetMouseResult,
 } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
 import { readBoundedTail, readLastLine } from "./output.ts";
@@ -189,70 +194,208 @@ function deleteLogFile(logPath: string): number {
 
 // ─── Sidebar rendering ───────────────────────────────────────────────────
 
-/**
- * Render the pill-bar status widget and aggregate status-bar text, and keep a
- * 1 Hz ticker running while any job is alive so the durations stay live (the
- * widget isn't redrawn on a timer otherwise). Re-renders only when the content
- * actually changes. Call after any state change that affects running jobs.
- */
-export function renderSidebar(reg: BackgroundRegistry, ctx: UiContext): void {
-    const pills: string[] = [];
-    let runningCount = 0;
-    const runningLogs = new Set<string>();
+/** One widget key for the whole extension (above the editor). */
+const SIDEBAR_WIDGET_KEY = "background-jobs";
 
+/** Running jobs in insertion order. Terminal jobs render no pill: their
+ *  outcome is always surfaced by a <task-notification>, a kill, or a read. */
+function runningJobs(reg: BackgroundRegistry): Job[] {
+    const jobs: Job[] = [];
     for (const job of reg.jobs.values()) {
-        // Terminal jobs render no pill: their outcome is always surfaced by a
-        // <task-notification>, a kill, or a read — there is no unread state.
-        if (isTerminalStatus(job.status)) continue;
-        runningCount++;
-        runningLogs.add(job.logPath);
-        const duration = formatDuration(Date.now() - job.startTime);
-        const glyph = job.kind === "monitor" ? "◉" : "▶";
-        // The command is what identifies the job, so it is never cut — pi wraps
-        // a widget line to the terminal width. The latest output line rides
-        // along on a continuation row (re-read each tick by the ticker), and
-        // only that one is bounded: a single log line can be arbitrarily long.
+        if (!isTerminalStatus(job.status)) jobs.push(job);
+    }
+    return jobs;
+}
+
+function pillHead(job: Job): string {
+    const glyph = job.kind === "monitor" ? "◉" : "▶";
+    return `${glyph} ${oneLine(jobLabel(job))}: `;
+}
+
+/** Inner width after the one-column margins Text-style widgets use. */
+function widgetInnerWidth(width: number): number {
+    return Math.max(1, width - 2);
+}
+
+/** Pad a rendered widget line to the full width (or cut it if the terminal is
+ *  narrower than the margins). Every returned line is one physical row. */
+function fitWidgetLine(text: string, width: number): string {
+    const inner = widgetInnerWidth(width);
+    const line = ` ${truncateToWidth(text, inner, "…", true)} `;
+    return visibleWidth(line) <= width ? line : truncateToWidth(line, width, "…", true);
+}
+
+/** Collapsed widget: exactly one row per running job. The duration survives
+ *  the cut; only the command is shortened. */
+function collapsedSidebarLines(reg: BackgroundRegistry, width: number): string[] {
+    const inner = widgetInnerWidth(width);
+    return runningJobs(reg).map((job) => {
+        const head = pillHead(job);
+        const suffix = ` (${formatDuration(Date.now() - job.startTime)})`;
+        const budget = inner - visibleWidth(head) - visibleWidth(suffix);
         const command = oneLine(job.command);
+        const text = budget > 1
+            ? `${head}${truncateToWidth(command, budget, "…")}${suffix}`
+            : `${head}${command}${suffix}`;
+        return fitWidgetLine(text, width);
+    });
+}
+
+/** Expanded widget: the full command (wrapped) plus the latest output row. */
+function expandedSidebarLines(reg: BackgroundRegistry, width: number): string[] {
+    const inner = widgetInnerWidth(width);
+    const lines: string[] = [];
+    for (const job of runningJobs(reg)) {
+        const duration = formatDuration(Date.now() - job.startTime);
+        const command = `${pillHead(job)}${oneLine(job.command)} (${duration})`;
+        for (const line of wrapTextWithAnsi(command, inner)) {
+            lines.push(fitWidgetLine(line, width));
+        }
         const progress = sidebarLastLine(job.logPath);
-        const pill = `${glyph} ${jobLabel(job)}: ${command} (${duration})`;
-        pills.push(
-            progress && progress !== command
-                ? `${pill}\n   ↳ ${progress.slice(0, PREVIEW_CHARS.progress)}`
-                : pill
-        );
+        if (progress) {
+            const progressLine = `   ↳ ${progress.slice(0, PREVIEW_CHARS.progress)}`;
+            for (const line of wrapTextWithAnsi(progressLine, inner)) {
+                lines.push(fitWidgetLine(line, width));
+            }
+        }
+    }
+    return lines;
+}
+
+/** String form for hosts without component widgets (RPC/print). The host owns
+ *  the width, so the command stays whole and the host wraps it. */
+function stringSidebarLines(reg: BackgroundRegistry): string[] {
+    return runningJobs(reg).map((job) => {
+        const duration = formatDuration(Date.now() - job.startTime);
+        const pill = `${pillHead(job)}${oneLine(job.command)} (${duration})`;
+        const progress = sidebarLastLine(job.logPath);
+        return progress
+            ? `${pill}\n   ↳ ${progress.slice(0, PREVIEW_CHARS.progress)}`
+            : pill;
+    });
+}
+
+/**
+ * The above-editor task widget. Collapsed (default) it is one row per running
+ * job with the command cut to fit; a click expands every job to its full
+ * command and latest output row, and another click collapses it again.
+ *
+ * Mounted once per session through the component form of setWidget: pi disposes
+ * the widget with the same key on every setWidget call, so re-setting it (as the
+ * old string form did) would drop the expanded state and the mouse identity. The
+ * 1 Hz ticker keeps durations and progress live through requestRender.
+ */
+export class SidebarWidget implements WidgetComponent {
+    private readonly reg: BackgroundRegistry;
+    private readonly tui: TuiHandle;
+
+    constructor(reg: BackgroundRegistry, tui: TuiHandle) {
+        this.reg = reg;
+        this.tui = tui;
     }
 
+    render(width: number): string[] {
+        return this.reg.sidebarExpanded
+            ? expandedSidebarLines(this.reg, width)
+            : collapsedSidebarLines(this.reg, width);
+    }
+
+    handleMouse(event: WidgetMouseEvent): WidgetMouseResult | undefined {
+        // Only a primary click toggles. Wheel, drag and release stay unhandled
+        // so fullscreen scrolling and transcript selection keep working.
+        if (event.type !== "click" || event.button !== "left") return undefined;
+        this.reg.sidebarExpanded = !this.reg.sidebarExpanded;
+        this.tui.requestRender();
+        return { handled: true, render: true };
+    }
+
+    invalidate(): void {
+        // Everything is read live on render; there is no cached layout.
+    }
+
+    dispose(): void {
+        // pi drops the widget on session teardown. Clear the handle only when
+        // it is still ours: a replacement mounts its factory after disposing
+        // this component, and that factory sets the new handle.
+        if (this.reg.sidebarTui === this.tui) {
+            this.reg.sidebarTui = undefined;
+            this.reg.sidebarMounted = false;
+        }
+    }
+}
+
+/**
+ * Render the widget and aggregate status-bar text, and keep the 1 Hz ticker
+ * running while any job is alive so durations and progress stay live. Call
+ * after any state change that affects running jobs.
+ */
+export function renderSidebar(reg: BackgroundRegistry, ctx: UiContext): void {
+    const jobs = runningJobs(reg);
+
     // Drop progress-cache entries for logs no longer tracked.
+    const runningLogs = new Set(jobs.map((job) => job.logPath));
     for (const key of sidebarLineCache.keys()) {
         if (!runningLogs.has(key)) sidebarLineCache.delete(key);
     }
 
-    if (pills.length === 0) {
+    if (jobs.length === 0) {
         stopSidebarTicker(reg);
-        if (reg.lastSidebarContent !== undefined) {
-            reg.lastSidebarContent = undefined;
-            ctx.ui.setWidget("background-jobs", undefined);
-            ctx.ui.setStatus("background-jobs", undefined);
+        if (reg.sidebarMounted) {
+            reg.sidebarMounted = false;
+            reg.sidebarTui = undefined;
+            reg.sidebarExpanded = false;
+            reg.lastSidebarStatus = undefined;
+            ctx.ui.setWidget(SIDEBAR_WIDGET_KEY, undefined);
+            ctx.ui.setStatus(SIDEBAR_WIDGET_KEY, undefined);
         }
         return;
     }
 
-    const parts = [`${runningCount} running`];
+    // Mount once; later updates only repaint. setWidget would dispose the
+    // component and lose its expanded state.
+    const componentHost = ctx.mode === undefined || ctx.mode === "tui";
+    if (!reg.sidebarMounted) {
+        if (componentHost) {
+            ctx.ui.setWidget(SIDEBAR_WIDGET_KEY, (tui) => {
+                reg.sidebarMounted = true;
+                reg.sidebarTui = tui;
+                return new SidebarWidget(reg, tui);
+            });
+        } else {
+            reg.sidebarMounted = true;
+        }
+    }
+
+    const parts = [`${jobs.length} running`];
     if (reg.completedCount > 0) parts.push(`${reg.completedCount} done`);
     if (reg.failedCount > 0) parts.push(`${reg.failedCount} failed`);
     const statusText = `▶ ${parts.join(", ")}`;
-    const key = `${pills.join("\n")}|${statusText}`;
-
-    if (key !== reg.lastSidebarContent) {
-        reg.lastSidebarContent = key;
-        ctx.ui.setWidget("background-jobs", pills);
-        ctx.ui.setStatus("background-jobs", ctx.ui.theme.fg("accent", statusText));
+    if (statusText !== reg.lastSidebarStatus) {
+        reg.lastSidebarStatus = statusText;
+        ctx.ui.setStatus(SIDEBAR_WIDGET_KEY, ctx.ui.theme.fg("accent", statusText));
     }
 
-    // The 1 Hz ticker exists to keep running-job durations live; with no
-    // running jobs there is nothing to tick.
-    if (runningCount > 0) ensureSidebarTicker(reg, ctx);
-    else stopSidebarTicker(reg);
+    // The ticker drives durations/progress; event-driven calls repaint too.
+    if (componentHost) {
+        reg.sidebarTui?.requestRender();
+    } else {
+        // RPC/print hosts cannot host a component: send string lines, which
+        // their renderer wraps. There is no click-to-expand there.
+        ctx.ui.setWidget(SIDEBAR_WIDGET_KEY, stringSidebarLines(reg));
+    }
+    ensureSidebarTicker(reg, ctx);
+}
+
+/** Reset the mount flags when the UI changes underneath us (session reload,
+ *  fork, switch). The widget itself belonged to the previous UI; renderSidebar
+ *  mounts a fresh component on the next call. */
+export function resetSidebarWidget(reg: BackgroundRegistry): void {
+    stopSidebarTicker(reg);
+    reg.sidebarMounted = false;
+    reg.sidebarTui = undefined;
+    reg.sidebarExpanded = false;
+    reg.lastSidebarStatus = undefined;
+    sidebarLineCache.clear();
 }
 
 /** Per-log cache for the sidebar's live progress line: the 1 Hz ticker would

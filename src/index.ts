@@ -15,7 +15,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { BackgroundRegistry } from "./state.ts";
 import { detectNonInteractive, terminateJobSilently } from "./lifecycle.ts";
-import { stopSidebarTicker } from "./registry.ts";
+import { resetSidebarWidget, renderSidebar } from "./registry.ts";
 import { EVENT } from "./types.ts";
 import { registerBashTool } from "./tools/bash.ts";
 import { registerBashBgTool } from "./tools/bash-bg.ts";
@@ -74,19 +74,25 @@ export default function (pi: ExtensionAPI): void {
     );
 
     // ── Session start ─────────────────────────────────────────────
-    // Claude Code parity: the registry is purely in-memory — no persistence,
-    // no revival. Every session starts with an empty registry.
-    pi.on("session_start", async (_event, _ctx) => {
+    // Claude Code parity: the registry is never restored from disk — no
+    // persistence, no revival of a previous session's jobs.
+    pi.on("session_start", async (_event, ctx) => {
         reg.nonInteractive = detectNonInteractive(
             process.argv,
             Boolean(process.stdin.isTTY)
         );
+        // A reload/fork/switch replaces the UI, taking the mounted widget with
+        // it. Drop the stale mount flags and put the widget back if a job is
+        // still in memory.
+        resetSidebarWidget(reg);
+        if (ctx.hasUI && reg.jobs.size > 0) renderSidebar(reg, ctx);
     });
 
     // ── Session shutdown ──────────────────────────────────────────
     pi.on("session_shutdown", async (_event, _ctx) => {
-        // Stop the live-duration ticker so the interval doesn't outlive the session.
-        stopSidebarTicker(reg);
+        // Stop the live-duration ticker and forget the widget before the UI is
+        // torn down.
+        resetSidebarWidget(reg);
 
         // Claude Code's gracefulShutdown: kill ALL running tasks on ANY
         // shutdown reason, so no orphans outlive the session. The silent-kill

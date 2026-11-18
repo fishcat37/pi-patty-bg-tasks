@@ -207,9 +207,18 @@ That's how Claude Code behaves: submitting input during an interruptible tool ge
 
 ## Status Bar
 
-A live pill widget keeps your running jobs in view — each with its duration and the **full command**, which the widget wraps to the terminal width instead of cutting off. The job's latest output line follows on the row below, so progress stays visible too. Completed and failed counts ride along in the status line. When you want the full picture, Shift+Down or `/bg-list` opens the task manager (its list, like these pills, shows whole commands).
+A live pill widget keeps your running jobs in view — one row per job with its duration, the command cut to fit the terminal width, and `…` marking the cut. A primary click (fullscreen mode) expands every job to its **full command** plus the latest output row, and another click collapses it. Completed and failed counts ride along in the status line. `/bg-list` (also on Shift+Down) always shows whole commands and works in every mode — regular mode leaves the mouse to the terminal, so the list is the keyboard path.
 
 ## Releases
+
+### 2.3.0 — Compact one-line sidebar, click to expand
+
+The whole-command pill made a job that began with a long `cd … &&` fill several rows above the editor and push the conversation up. The sidebar now defaults to one row per job: the command is cut to fit, the duration stays on that row, and the ellipsis marks the cut. `/bg-list` still shows whole commands.
+
+- **Click to expand/collapse.** The widget is a pi-tui component with a mouse handler: a primary click switches every job to its full command plus the latest output row, and another click collapses it. Mouse clicks are routed only in fullscreen mode; `/bg-list`, `/bg-log`, and the agent-facing `jobs` tool cover regular mode and RPC.
+- **Live durations and progress still tick.** The component is mounted once and repainted through `requestRender()` every second and on every job state change, so durations count up and expanded progress stays current.
+- **RPC hosts keep their string widgets.** RPC's UI cannot host components, so the extension sends the old string form there and lets the host wrap it.
+- The trade-off: the latest output row is no longer always visible — one click (or `/bg-log`) away.
 
 ### 2.2.0 — Full commands, no more truncation
 

@@ -137,6 +137,30 @@ export interface ViewerComponent {
     dispose?(): void;
 }
 
+/** The mouse event pi-tui hands a component in fullscreen mode. Only the
+ *  fields the sidebar reads are typed: older pi-tui versions have no mouse
+ *  routing, so handleMouse is simply never called there. */
+export interface WidgetMouseEvent {
+    type: "press" | "release" | "move" | "drag" | "click" | "wheel";
+    button: "left" | "middle" | "right" | "none";
+}
+
+/** What a component returns from handleMouse. `handled` stops propagation
+ *  (the click does not start a text selection); `render` asks for a repaint. */
+export interface WidgetMouseResult {
+    handled?: boolean;
+    render?: boolean;
+}
+
+/** A component mounted with ctx.ui.setWidget(). pi-tui requires render and
+ *  invalidate; handleMouse is optional and only fires in fullscreen mode. */
+export interface WidgetComponent extends ViewerComponent {
+    handleMouse?(event: WidgetMouseEvent): WidgetMouseResult | undefined;
+}
+
+/** Factory form of setWidget: pi calls it once when the widget is mounted. */
+export type WidgetComponentFactory = (tui: TuiHandle) => WidgetComponent;
+
 export interface UiContext {
     /** Runtime mode: only "tui" can host custom components (the RPC UI stub
      *  resolves custom() with undefined). Absent in test fakes. */
@@ -145,7 +169,7 @@ export interface UiContext {
         notify(message: string, level?: "info" | "warning" | "error"): void;
         setWidget(
             name: string,
-            content: string[] | undefined,
+            content: string[] | WidgetComponentFactory | undefined,
             options?: { placement?: "aboveEditor" | "belowEditor" }
         ): void;
         setStatus(name: string, content: unknown): void;

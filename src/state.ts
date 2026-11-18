@@ -4,7 +4,7 @@
  * One instance per session, threaded through every tool and helper.
  */
 
-import type { Job, ForegroundSlot } from "./types.ts";
+import type { Job, ForegroundSlot, TuiHandle } from "./types.ts";
 
 export class BackgroundRegistry {
     jobs = new Map<string, Job>();
@@ -24,6 +24,15 @@ export class BackgroundRegistry {
 
     /** Live-duration ticker for the sidebar pills; runs while jobs are alive. */
     sidebarTimer: NodeJS.Timeout | undefined = undefined;
-    /** Last rendered sidebar content — used to skip redundant widget updates. */
-    lastSidebarContent: string | undefined = undefined;
+    /** True while the component widget is mounted in this session's UI. pi
+     *  removes the previous widget on every setWidget call, so the component is
+     *  mounted once and thereafter updated through requestRender. */
+    sidebarMounted = false;
+    /** The mounted widget's TUI handle — requestRender after a state change. */
+    sidebarTui: TuiHandle | undefined = undefined;
+    /** Click-to-expand state: false = one row per job, true = full command and
+     *  the latest output row. Reset when the widget empties. */
+    sidebarExpanded = false;
+    /** Last status-bar text, to skip redundant setStatus calls. */
+    lastSidebarStatus: string | undefined = undefined;
 }
